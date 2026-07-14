@@ -1,0 +1,13 @@
+# macOS
+.DS_Store
+._*
+
+# Editor and IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Agent-created temporary files
+.agent-tmp/
