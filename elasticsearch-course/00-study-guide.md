@@ -28,7 +28,7 @@ curl -sS http://localhost:9200 || true
 curl -sS http://localhost:5601 || true
 ```
 
-默认端口：`9200` 是 HTTP API，`9300` 用于节点间传输（transport），`5601` 是 Kibana。不要把 `9300` 暴露到公网。
+默认端口：`9200` 是 Elasticsearch 的 HTTP API，应用程序和 Kibana 通过它访问 Elasticsearch；`9300` 用于 Elasticsearch 集群中各 ES 节点之间的传输（transport）通信，不用于 Elasticsearch 与 Kibana 之间的通信；`5601` 是 Kibana 的 Web 服务端口。Elasticsearch 可以采用单节点部署，此时没有跨节点通信需求，通常无需对外映射或开放 `9300`；多节点部署时也只应在集群内部开放该端口，不要暴露到公网。
 
 ## 3. 统一变量
 
@@ -43,7 +43,7 @@ export ES_CA="$PWD/http_ca.crt"
 alias escurl='curl --silent --show-error --cacert "$ES_CA" -u "elastic:$ELASTIC_PASSWORD"'
 ```
 
-命令行解释器（Shell）的别名（alias）在脚本中不可靠，正式脚本应封装函数或显式写完整参数。密码不要写入 Git、命令历史、Compose 文件或日志；优先使用密钥（secret）、密钥库（keystore）或环境变量注入。
+命令行解释器（Shell）的别名（alias）在脚本中不可靠，正式脚本应封装函数或显式写完整参数。密码不要写入 Git、命令历史、Compose 文件或日志；应通过 Secret 管理系统或密钥库（keystore）保存敏感凭据，并在运行时以受限文件或环境变量的方式注入。
 
 ## 4. 学习数据约定
 
