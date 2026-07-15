@@ -84,6 +84,17 @@ GET /products/_mapping
 GET /products/_settings?flat_settings=true
 ```
 
+`_cat` 接口默认返回适合终端阅读的对齐文本。常用查询参数如下：
+
+| 参数 | 作用 | 示例 |
+| --- | --- | --- |
+| `v` | 显示列名 | `GET /_cat/indices?v` |
+| `h` | 只显示指定列，多个列用逗号分隔 | `GET /_cat/nodes?h=name,roles,cpu` |
+| `s` | 按指定列排序，可使用 `:asc` 或 `:desc` | `GET /_cat/indices?s=store.size:desc` |
+| `format` | 指定响应格式，例如 `json` | `GET /_cat/shards?format=json` |
+
+即使指定 `format=json`，CAT API 仍主要用于人工查看。应用程序和长期运行的自动化任务应优先使用对应的结构化 JSON API，避免依赖面向展示的列名与格式。
+
 生产脚本使用 `filter_path` 减少响应内容，设置连接和请求超时，记录请求标识，对 429/502/503 响应执行带随机抖动的指数退避，但不要无限重试非幂等写入。
 
 ## 练习与验收

@@ -44,6 +44,19 @@ GET /products/_doc/p1001
 GET /products/_source/p1001
 ```
 
+`_source` 保存索引文档时提交的原始 JSON 内容，本身不会被索引，因此不能直接负责字段检索；Elasticsearch 使用倒排索引等数据结构找到文档，再从 `_source` 取回业务数据。两种读取方式的返回内容不同：
+
+- `GET /products/_doc/p1001` 返回 `_index`、`_id`、版本信息以及 `_source`。
+- `GET /products/_source/p1001` 只返回文档的 `_source` 内容。
+
+按标识执行 GET 默认是实时读取，不需要等待刷新；搜索则是近实时的，文档刷新后才能被搜索到。只需要部分字段时，可以过滤 `_source`，减少网络传输和客户端反序列化开销：
+
+```http
+GET /products/_doc/p1001?_source=product_id,name,price
+```
+
+更新、重建索引和部分调试能力依赖 `_source`，不要仅为了节省磁盘空间就随意禁用它。
+
 让 Elasticsearch 自动生成文档标识：
 
 ```http
@@ -84,7 +97,7 @@ POST /products/_update/p1001
 }
 ```
 
-脚本应短小且参数化，避免把用户输入拼接到脚本源码中。
+这里的 `ctx._source` 是更新脚本中可修改的文档内容；脚本完成后，Elasticsearch 会重新索引修改后的文档。脚本应短小且参数化，避免把用户输入拼接到脚本源码中。
 
 ## 4. 删除与刷新
 
