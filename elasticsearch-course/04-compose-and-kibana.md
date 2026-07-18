@@ -4,6 +4,7 @@
 
 - 用 Docker Compose 或 Podman Compose 启动可持久化的学习环境。
 - 理解 Compose 的服务名、容器名、项目名及资源生命周期，并区分独立部署与复用已有服务。
+- 复制 Compose 集群的 HTTP CA，并从宿主机验证 Elasticsearch API。
 - 完成 Kibana 首次注册，并区分注册令牌、服务账户令牌与用户密码。
 - 理解手动注册如何扩展为 Compose 自动初始化，以及这个示例为何不是生产架构。
 
@@ -306,9 +307,9 @@ podman compose up -d kib01
 
 本例使用引擎管理的命名卷，适合 rootless Podman，不需要给卷添加 `:Z`。不要交替使用 `podman` 和 `sudo podman` 管理这套环境，否则会进入彼此隔离的容器、网络和卷存储。资源限制能否在 rootless 模式下生效还取决于主机的 cgroup 配置。
 
-## 3. 手动完成 Kibana 首次注册
+## 3. 准备访问凭据并完成 Kibana 首次注册
 
-当前 `compose.yml` 只负责启动 Elasticsearch 和 Kibana，不会预先完成 Kibana 注册。首次打开 Kibana 时，需要使用 Elasticsearch 生成的注册令牌完成安全配对。
+当前 `compose.yml` 只负责启动 Elasticsearch 和 Kibana。接下来需要取得密码和 HTTP CA，验证宿主机能够安全访问 Elasticsearch，并使用注册令牌完成 Kibana 首次配对。
 
 ### 3.1 取得本集群的密码和注册令牌
 
@@ -334,7 +335,38 @@ podman compose exec es01 \
 
 这里重置的是第 04 课新集群的 `elastic` 密码。注册令牌是短期引导凭据，自动安全配置生成的令牌通常在 30 分钟内有效；过期后重新执行创建命令即可。
 
-### 3.2 在浏览器中注册
+### 3.2 复制 CA 并验证 Elasticsearch API
+
+Elasticsearch 自动生成的 HTTP CA 位于容器内。Kibana 注册时会自动保存所需的信任配置，但宿主机上的 `curl` 无法直接读取容器内的证书；要通过 `https://localhost:9200` 调用 API，需要先把本集群的 `http_ca.crt` 复制到宿主机。
+
+Docker 用户执行：
+
+```bash
+docker compose cp \
+  es01:/usr/share/elasticsearch/config/certs/http_ca.crt \
+  ./http_ca.crt
+```
+
+Podman 用户执行：
+
+```bash
+podman compose cp \
+  es01:/usr/share/elasticsearch/config/certs/http_ca.crt \
+  ./http_ca.crt
+```
+
+然后设置连接变量，并让 `curl` 提示输入第 3.1 节重置得到的密码：
+
+```bash
+export ES_URL=https://localhost:9200
+export ES_CA="$PWD/http_ca.crt"
+
+curl --cacert "$ES_CA" -u elastic "$ES_URL"
+```
+
+第 03 课和第 04 课是两个独立集群，各自生成自己的 CA；第 03 课复制出的证书不能用于验证第 04 课的 HTTPS 连接。不要用 `curl -k` 绕过证书校验。本例生成的 `http_ca.crt` 已被仓库根目录的 `.gitignore` 忽略，不应提交到 Git。
+
+### 3.3 在浏览器中注册
 
 1. 打开 `http://localhost:5601`。
 2. 在 Kibana 初始化页面粘贴刚生成的注册令牌。
@@ -348,11 +380,11 @@ docker compose exec kib01 bin/kibana-verification-code
 podman compose exec kib01 bin/kibana-verification-code
 ```
 
-4. 注册完成后，先按第 3.3 节等待 Kibana 完全就绪，再使用用户名 `elastic` 和第 3.1 节重置得到的密码登录。
+4. 注册完成后，先按第 3.4 节等待 Kibana 完全就绪，再使用用户名 `elastic` 和第 3.1 节重置得到的密码登录。
 
 注册发生在浏览器首次初始化页面，不是在现有 `.env` 或 `compose.yml` 中。注册成功后，Kibana 将与 Elasticsearch 通信所需的信任配置和服务账户凭据写入自己的配置；本例通过 `kibanaconfig` 和 `kibanadata` 卷持久化这些状态。后续重启或重建 Kibana 容器时不再持续使用那枚短期注册令牌。
 
-### 3.3 等待 Kibana 完全就绪
+### 3.4 等待 Kibana 完全就绪
 
 提交注册令牌后，Kibana 还需要保存安全配置、建立 Elasticsearch 连接并初始化许可证及其他插件。浏览器如果在这个短暂窗口内访问 Kibana，可能看到：
 
@@ -555,6 +587,7 @@ podman compose down
 - 能解释 `container_name` 的作用与扩展限制，以及 `c04_` 资源前缀来自哪个项目名。
 - 能区分复用 Compose 自己创建的容器、通过外部网络访问已有容器，以及通过外部卷复用数据。
 - `docker compose ps` 或 `podman compose ps` 显示 Elasticsearch 健康、Kibana 正在运行。
+- 能把本集群的 `http_ca.crt` 复制到宿主机，并使用 `curl --cacert` 验证 Elasticsearch API。
 - 能完成浏览器注册并用 `elastic` 登录 Kibana，在开发工具中查看集群健康状态。
 - 能从宿主机访问 Kibana `5601` 端口并等待 `/api/status` 返回 `200`，也能在 Dev Tools 中使用 `GET kbn:/api/status`，并区分注册后的瞬时许可证 503 与独立的 Fleet 加密密钥错误。
 - 能说明 1 GiB 限制只应用于 `es01`，而不是整个 Compose 项目。

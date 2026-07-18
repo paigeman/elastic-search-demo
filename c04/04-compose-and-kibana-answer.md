@@ -74,7 +74,7 @@ c04-kib01-1  kib01   running             127.0.0.1:5601->5601/tcp
 
 Kibana 没有在当前 Compose 文件中配置容器健康检查，所以其 `Health` 字段为空；`running` 加上 `/api/status` 返回 `200` 可以证明它已经就绪。
 
-## 6. 完成 Kibana 注册、登录并查看集群健康状态
+## 6. 复制 CA、完成 Kibana 注册并查看集群健康状态
 
 先生成第 04 课集群自己的登录密码和短期注册令牌：
 
@@ -85,6 +85,21 @@ podman compose exec es01 \
 podman compose exec es01 \
   /usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s kibana
 ```
+
+从宿主机直接调用 Elasticsearch API 前，复制第 04 课集群自己的 HTTP CA：
+
+```bash
+podman compose cp \
+  es01:/usr/share/elasticsearch/config/certs/http_ca.crt \
+  ./http_ca.crt
+
+export ES_URL=https://localhost:9200
+export ES_CA="$PWD/http_ca.crt"
+
+curl --cacert "$ES_CA" -u elastic "$ES_URL"
+```
+
+`curl` 会提示输入本节重置得到的 `elastic` 密码。第 03 课的证书属于另一个独立集群，不能用于验证第 04 课的 HTTPS 连接；也不应使用 `curl -k` 关闭证书校验。Docker 用户将命令中的 `podman` 替换为 `docker`。
 
 打开 `http://localhost:5601`，粘贴注册令牌。如果页面要求验证码，执行：
 
