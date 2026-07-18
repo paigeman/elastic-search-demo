@@ -12,5 +12,8 @@
 # Agent-created temporary files
 .agent-tmp/
 
+# Local environment configuration
+.env
+
 # Elasticsearch runtime-generated CA certificate
 http_ca.crt
