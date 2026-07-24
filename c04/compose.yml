@@ -1,31 +1,43 @@
 services:
   es01:
     image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    hostname: es01
+    entrypoint: ["/bin/tini", "--", "/usr/local/bin/start-elasticsearch.sh"]
     environment:
       - discovery.type=single-node
     ports:
       - "127.0.0.1:${ES_PORT}:9200"
     volumes:
+      - ./start-elasticsearch.sh:/usr/local/bin/start-elasticsearch.sh:ro
+      - esconfig:/usr/share/elasticsearch/config
       - esdata01:/usr/share/elasticsearch/data
+      - kibanabootstrap:/bootstrap
     mem_limit: ${MEM_LIMIT}
     healthcheck:
-      test: ["CMD-SHELL", "curl -s --cacert config/certs/http_ca.crt https://localhost:9200 | grep -q 'missing authentication credentials'"]
+      test: ["CMD-SHELL", "curl -s --cacert config/certs/c04/ca/ca.crt https://localhost:9200 | grep -q 'missing authentication credentials'"]
       interval: 10s
       timeout: 10s
       retries: 60
 
   kib01:
     image: docker.elastic.co/kibana/kibana:${STACK_VERSION}
+    environment:
+      ELASTICSEARCH_HOSTS: '["https://es01:9200"]'
+      ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES: /run/c04-kibana-bootstrap/http_ca.crt
+      ELASTICSEARCH_SSL_VERIFICATIONMODE: full
     ports:
       - "127.0.0.1:${KIBANA_PORT}:5601"
     volumes:
-      - kibanaconfig:/usr/share/kibana/config
+      - ./start-kibana.sh:/usr/local/bin/start-kibana.sh:ro
+      - kibanabootstrap:/run/c04-kibana-bootstrap:ro
       - kibanadata:/usr/share/kibana/data
+    command: ["/bin/bash", "/usr/local/bin/start-kibana.sh"]
     depends_on:
       es01:
         condition: service_healthy
 
 volumes:
+  esconfig:
   esdata01:
-  kibanaconfig:
+  kibanabootstrap:
   kibanadata:

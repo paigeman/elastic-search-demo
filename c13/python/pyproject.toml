@@ -1,0 +1,20 @@
+[project]
+name = "course-13-python-client"
+version = "0.1.0"
+description = "Python client example for Elasticsearch course 13"
+requires-python = ">=3.10"
+dependencies = [
+    "elasticsearch>=9.0.0,<10.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.12.0,<1.0.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]

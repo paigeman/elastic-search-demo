@@ -12,6 +12,12 @@
 # Agent-created temporary files
 .agent-tmp/
 
+# Python
+__pycache__/
+*.py[cod]
+.ruff_cache/
+.venv/
+
 # Local environment configuration
 .env
 
