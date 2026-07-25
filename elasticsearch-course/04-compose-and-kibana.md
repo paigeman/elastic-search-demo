@@ -107,11 +107,11 @@ volumes:
   kibanadata:
 ```
 
-Elasticsearch 与 Kibana 必须使用完全相同的版本号。命名卷 `esconfig` 保存 Elasticsearch 的 `elasticsearch.yml`、keystore、文件型服务令牌和 TLS 证书，`esdata01` 保存索引与集群数据，`kibanabootstrap` 保存提供给 Kibana 的 CA 和服务账户令牌，`kibanadata` 保存 Kibana 数据。它们都由 Compose 按项目隔离，删除或重建容器不会自动删除这些卷。
+Elasticsearch 与 Kibana 必须使用完全相同的版本号。命名卷 `esconfig` 保存 Elasticsearch 的 `elasticsearch.yml`、keystore、文件型服务令牌和 TLS 证书，`esdata01` 保存索引与集群数据，`kibanabootstrap` 保存提供给 Kibana 的 CA 和服务账户令牌（由同目录 `start-elasticsearch.sh` 生成，以只读方式挂载到 `/run/c04-kibana-bootstrap` 供 `start-kibana.sh` 使用），`kibanadata` 保存 Kibana 数据。它们都由 Compose 按项目隔离，删除或重建容器时如果不带 `-v` 不会自动删除这些卷。
 
-`es01` 的启动脚本先生成课程专用 CA、HTTP 证书和传输证书，并准备 Kibana 服务账户令牌，再调用镜像原有入口启动 Elasticsearch。HTTP 证书的 SAN 固定包含 DNS 名称 `es01`、`localhost` 和 IP 地址 `127.0.0.1`；Kibana 通过 `https://es01:9200` 连接并使用 `full` 模式同时验证 CA 与主机名，因此不依赖可能变化的容器 IP，也不需要降低 TLS 校验等级。
+`es01` 的启动脚本先生成课程专用 CA 证书、HTTP 证书和传输证书，并准备 Kibana 服务账户令牌，再调用镜像原有入口启动 Elasticsearch。其中 CA 证书用于签发和验证其他证书，HTTP 证书是 Elasticsearch 在 TLS 握手时向客户端出示的服务端证书，传输证书则用于 Elasticsearch 节点之间的双向 TLS 通信。HTTP 证书的 SAN 固定包含 DNS 名称 `es01`、`localhost` 和 IP 地址 `127.0.0.1`；Kibana 通过 `https://es01:9200` 连接并使用 `full` 模式同时验证 CA 与主机名，因此不依赖可能变化的容器 IP，也不需要降低 TLS 校验等级。HTTP 证书只包含公钥不含私钥，私钥存放在 `es01-http.key` 文件中不离开服务端。本部署中 HTTP 层仅做服务端单向认证，客户端身份通过密码或 API Key 在应用层完成，不要求客户端出示证书；Elasticsearch 节点之间则通过传输证书实现双向 TLS，互相验证身份。
 
-启动脚本只在 `esconfig` 中不存在课程证书时生成新证书，只在 `kibanabootstrap` 中不存在令牌文件时创建服务令牌，后续启动会直接复用。对于已经迁移了完整 `esconfig` 的旧版集群，第一次采用本节新版 Compose 时会自动生成包含 `es01` 的新证书并切换 TLS 配置；`esdata01` 中的索引、安全用户、密码和 API Key 不会因此改变。宿主机客户端随后需要重新复制并信任新的 HTTP CA。
+启动脚本只在 `esconfig` 中不存在课程证书时生成新证书，只在 `kibanabootstrap` 中不存在令牌文件时创建服务令牌，后续启动会直接复用。首次部署时，脚本自动生成包含 `es01` 域名的新证书并写入 TLS 配置；`esdata01` 中的索引、安全用户、密码和 API Key 不受影响。宿主机客户端随后需要复制并信任新的 HTTP CA 证书（即上述 CA 证书中可公开分发的部分，不含私钥，Elasticsearch 将其命名为 `http_ca.crt`）。客户端在 TLS 握手时用它验证 Elasticsearch 出示的 HTTP 证书是否由受信任的 CA 签发，类似于浏览器依赖预装根 CA 证书来验证网站证书——只不过这里 CA 是自签的，需要手动给客户端安装。
 
 `kibanabootstrap` 中的服务账户令牌属于敏感信息，应限制卷的访问权限。命名卷只是本地实验的持久化手段，不是生产环境的 Secret 管理系统。
 
@@ -366,13 +366,13 @@ podman compose stop
 podman compose start
 ```
 
-当前主示例只有 `es01` 和 `kib01` 两个长期服务，没有需要单独处理的一次性容器。以上两条命令都不需要追加服务名：停止时 Compose 会先停止 Kibana，启动时会先启动 Elasticsearch、等待健康检查通过，再启动 Kibana。证书和服务令牌的幂等准备由 `es01` 自己的入口脚本完成。
-
-再次执行 `podman compose up -d` 时，配置未变化的容器通常会继续使用；如果镜像或服务配置发生变化，Compose 可以删除旧容器并创建新容器。因此，索引数据、TLS 证书、keystore 和 Kibana 注册状态都必须放在命名卷中，不能依赖容器可写层。
+执行 `podman compose up -d` 时，如果容器尚在（例如之前仅 `stop`），配置未变化则继续复用，配置变化则重建；如果此前执行了 `down`，容器已被清理，`up -d` 会重新创建容器但仍复用原有命名卷。因此，索引数据、TLS 证书、keystore 和 Kibana 注册状态都必须放在命名卷中，不能依赖容器可写层。
 
 把 `container_name` 设置成一个由第 03 课创建且仍然存在的 `es01`，只会引起名称冲突，不会让 Compose 自动接管它。
 
 #### 延续第 03 课已有的 Elasticsearch
+
+> 与前面主示例的全自动部署不同，这条路线回到手动 enrollment 模式：Compose 只负责启动 Kibana 容器，Kibana 注册仍需人工使用第 03 课集群生成的 enrollment token 完成，不能直接套用主示例的自动注入方式。
 
 如果希望第 04 课沿用第 03 课的集群、密码和数据，可以保留第 03 课的 `es01`，让 Compose 只创建 Kibana，并接入第 03 课已经创建的 `elastic` 网络：
 
@@ -497,7 +497,7 @@ podman compose logs -f es01
 
 日志跟随界面中按 `Ctrl-C` 只会退出日志查看，不会停止容器。
 
-本例使用引擎管理的命名卷，适合 rootless Podman，不需要给卷添加 `:Z`。不要交替使用 `podman` 和 `sudo podman` 管理这套环境，否则会进入彼此隔离的容器、网络和卷存储。资源限制能否在 rootless 模式下生效还取决于主机的 cgroup 配置。
+本例全部使用引擎管理的命名卷而非绑定挂载，不存在 SELinux 标签问题，不需要给卷添加 `:Z`。不要交替使用 `podman` 和 `sudo podman` 管理这套环境，否则会进入彼此隔离的容器、网络和卷存储。通过 `podman machine` 在 macOS 上运行时，资源限制能否生效还取决于虚拟机的 cgroup 配置。
 
 ## 3. 验证自动初始化并准备访问凭据
 
@@ -518,11 +518,11 @@ podman compose logs es01
 Elasticsearch certificates and Kibana bootstrap files are ready
 ```
 
-首次启动时，`start-elasticsearch.sh` 生成包含 `es01` SAN 的持久化证书，创建 `elastic/kibana/c04-kibana` 文件型服务令牌，并把令牌原文与公开 HTTP CA 写入受限的 `kibanabootstrap` 卷。再次执行 `compose start`、`compose restart` 或 `compose up` 时，脚本都会复用已有文件。
+首次启动时，`start-elasticsearch.sh` 生成包含 `es01` SAN 的持久化证书，创建 `elastic/kibana/c04-kibana` 文件型服务令牌，并把令牌原文与公开 HTTP CA 写入受限的 `kibanabootstrap` 卷。再次执行 `compose start`、`compose restart` 或 `compose up` 时，脚本都会复用已有文件——前提是此前未执行 `compose down -v` 删除卷，否则证书和令牌需重新生成。
 
 ### 3.2 重置用户密码并验证 Elasticsearch API
 
-启动脚本创建的是 Kibana 机器凭据，不是浏览器用户密码。重置本章独立集群的 `elastic` 用户密码：
+启动脚本创建的是 Kibana 机器凭据，不是浏览器用户密码。首次启动时，需重置本章独立集群的 `elastic` 用户密码：
 
 ```bash
 # Docker
