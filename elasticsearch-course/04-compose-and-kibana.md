@@ -23,12 +23,12 @@ mkdir -p c04
 
 第 03 课通过 `docker run` 或 `podman run` 直接管理 Elasticsearch；第 04 课则创建新的 Compose 项目。两套实验默认不是同一个 Elasticsearch 实例：
 
-| 项目 | 第 03 课 | 第 04 课 |
-| --- | --- | --- |
-| 管理方式 | 直接运行容器 | Compose 项目 |
-| Elasticsearch 服务 | 固定容器名 `es01` | Compose 服务名 `es01`，容器名由 Compose 生成 |
-| 数据卷 | 引擎级命名卷 `esdata01` | 项目级命名卷，通常类似 `c04_esdata01` |
-| `elastic` 密码 | 属于第 03 课数据卷中的安全索引 | 属于第 04 课数据卷中的安全索引 |
+| 项目               | 第 03 课                       | 第 04 课                                     |
+| ------------------ | ------------------------------ | -------------------------------------------- |
+| 管理方式           | 直接运行容器                   | Compose 项目                                 |
+| Elasticsearch 服务 | 固定容器名 `es01`              | Compose 服务名 `es01`，容器名由 Compose 生成 |
+| 数据卷             | 引擎级命名卷 `esdata01`        | 项目级命名卷，通常类似 `c04_esdata01`        |
+| `elastic` 密码     | 属于第 03 课数据卷中的安全索引 | 属于第 04 课数据卷中的安全索引               |
 
 密码跟随 Elasticsearch 集群的安全数据，不跟随课程编号或镜像版本。因此，第 03 课生成的密码不能用于第 04 课的新集群；第 04 课需要重新取得自己的密码。Compose 示例没有固定 `container_name`，以免与第 03 课的 `es01` 容器重名。
 
@@ -78,7 +78,11 @@ services:
       - kibanabootstrap:/bootstrap
     mem_limit: ${MEM_LIMIT}
     healthcheck:
-      test: ["CMD-SHELL", "curl -s --cacert config/certs/c04/ca/ca.crt https://localhost:9200 | grep -q 'missing authentication credentials'"]
+      test:
+        [
+          "CMD-SHELL",
+          "curl -s --cacert config/certs/c04/ca/ca.crt https://localhost:9200 | grep -q 'missing authentication credentials'",
+        ]
       interval: 10s
       timeout: 10s
       retries: 60
@@ -109,7 +113,7 @@ volumes:
 
 Elasticsearch 与 Kibana 必须使用完全相同的版本号。命名卷 `esconfig` 保存 Elasticsearch 的 `elasticsearch.yml`、keystore、文件型服务令牌和 TLS 证书，`esdata01` 保存索引与集群数据，`kibanabootstrap` 保存提供给 Kibana 的 CA 和服务账户令牌（由同目录 `start-elasticsearch.sh` 生成，以只读方式挂载到 `/run/c04-kibana-bootstrap` 供 `start-kibana.sh` 使用），`kibanadata` 保存 Kibana 数据。它们都由 Compose 按项目隔离，删除或重建容器时如果不带 `-v` 不会自动删除这些卷。
 
-`es01` 的启动脚本先生成课程专用 CA 证书、HTTP 证书和传输证书，并准备 Kibana 服务账户令牌，再调用镜像原有入口启动 Elasticsearch。其中 CA 证书用于签发和验证其他证书，HTTP 证书是 Elasticsearch 在 TLS 握手时向客户端出示的服务端证书，传输证书则用于 Elasticsearch 节点之间的双向 TLS 通信。HTTP 证书的 SAN 固定包含 DNS 名称 `es01`、`localhost` 和 IP 地址 `127.0.0.1`；Kibana 通过 `https://es01:9200` 连接并使用 `full` 模式同时验证 CA 与主机名，因此不依赖可能变化的容器 IP，也不需要降低 TLS 校验等级。HTTP 证书只包含公钥不含私钥，私钥存放在 `es01-http.key` 文件中不离开服务端。本部署中 HTTP 层仅做服务端单向认证，客户端身份通过密码或 API Key 在应用层完成，不要求客户端出示证书；Elasticsearch 节点之间则通过传输证书实现双向 TLS，互相验证身份。
+`es01` 的启动脚本先生成课程专用 CA 证书、HTTP 证书和传输证书，并准备 Kibana 服务账户令牌，再调用镜像原有入口启动 Elasticsearch。其中 CA 证书用于签发和验证其他证书，HTTP 证书是 Elasticsearch 在 TLS 握手时向客户端出示的服务端证书，传输证书则用于 Elasticsearch 节点之间的双向 TLS 通信。HTTP 证书的 SAN 固定包含 DNS 名称 `es01`、`localhost` 和 IP 地址 `127.0.0.1`；Kibana 通过 `https://es01:9200` 连接，并将 `elasticsearch.ssl.verificationMode` 设置为 `full`，即同时验证 Elasticsearch 的 HTTP 证书是否由受信任的 CA 签发，以及连接地址 `es01` 是否与证书 SAN 匹配。这里的 `full` 表示 Kibana 完整校验服务端证书，不代表双向 TLS；因此该连接不依赖可能变化的容器 IP，也不需要降低 TLS 校验等级。HTTP 证书只包含公钥不含私钥，私钥存放在 `es01-http.key` 文件中不离开服务端。本部署中 HTTP 层仅做服务端单向认证，客户端身份通过密码或 API Key 在应用层完成，不要求客户端出示证书；Elasticsearch 节点之间则通过传输证书实现双向 TLS，互相验证身份。
 
 启动脚本只在 `esconfig` 中不存在课程证书时生成新证书，只在 `kibanabootstrap` 中不存在令牌文件时创建服务令牌，后续启动会直接复用。首次部署时，脚本自动生成包含 `es01` 域名的新证书并写入 TLS 配置；`esdata01` 中的索引、安全用户、密码和 API Key 不受影响。宿主机客户端随后需要复制并信任新的 HTTP CA 证书（即上述 CA 证书中可公开分发的部分，不含私钥，Elasticsearch 将其命名为 `http_ca.crt`）。客户端在 TLS 握手时用它验证 Elasticsearch 出示的 HTTP 证书是否由受信任的 CA 签发，类似于浏览器依赖预装根 CA 证书来验证网站证书——只不过这里 CA 是自签的，需要手动给客户端安装。
 
@@ -352,12 +356,12 @@ volumes:
 
 “复用已有容器”需要先区分容器由谁创建和管理：
 
-| 目标 | 是否支持 | 正确方式 |
-| --- | --- | --- |
-| 继续使用同一 Compose 项目创建的容器 | 支持 | 使用 `compose stop`、`compose start` 或再次执行 `compose up` |
-| 让 Compose 接管由 `docker run` 或 `podman run` 创建的任意容器 | 不支持 | Compose 不会仅凭同名容器完成接管 |
-| 让 Compose 服务访问已有容器 | 支持 | 让双方加入同一个外部网络，但已有容器仍由原方式管理 |
-| 让新 Compose 容器挂载已有数据卷 | 支持 | 声明 `external` 卷；这复用的是数据，不是容器 |
+| 目标                                                          | 是否支持 | 正确方式                                                     |
+| ------------------------------------------------------------- | -------- | ------------------------------------------------------------ |
+| 继续使用同一 Compose 项目创建的容器                           | 支持     | 使用 `compose stop`、`compose start` 或再次执行 `compose up` |
+| 让 Compose 接管由 `docker run` 或 `podman run` 创建的任意容器 | 不支持   | Compose 不会仅凭同名容器完成接管                             |
+| 让 Compose 服务访问已有容器                                   | 支持     | 让双方加入同一个外部网络，但已有容器仍由原方式管理           |
+| 让新 Compose 容器挂载已有数据卷                               | 支持     | 声明 `external` 卷；这复用的是数据，不是容器                 |
 
 Compose 通过项目和服务标签识别自己创建的容器。同一项目的容器停止后可以原样启动：
 
@@ -430,9 +434,10 @@ volumes:
 - 新旧容器必须使用兼容的 Elasticsearch 版本。不能把数据卷随意挂载到更旧版本，也不能把普通容器重建当作未经评估的升级流程。
 - 索引、集群元数据和安全索引位于 `esdata01` 中，因此原集群的用户和密码会随数据保留。
 - 自动生成的 `http_ca.crt`、`http.p12`、`transport.p12`、`elasticsearch.yml` 和 Elasticsearch keystore 位于 `/usr/share/elasticsearch/config`，不在 `esdata01` 中。
-- Elasticsearch 检测到数据目录已经存在且非空时，会跳过首次安全自动配置。第 03 课只持久化了数据卷，没有持久化配置目录；因此，新 Compose 容器仅挂载 `esdata01` 后不会自动重建与原节点等价的 TLS 配置，当前 HTTPS 健康检查、注册令牌生成和 Kibana 注册都可能失败。
+- 当前 Compose 不依赖 Elasticsearch 的首次安全自动配置：课程提供的入口脚本会在新配置卷中生成 CA、HTTP 证书和传输证书，并创建 Kibana 服务账户令牌。因此，在旧节点已经停止且版本兼容的前提下，新容器可以挂载原来的 `esdata01`，使用新生成的安全配置启动并继续访问其中的数据。
+- 只复用 `esdata01` 不会恢复原节点的 CA、证书、Elasticsearch keystore 或其他自定义配置。新节点会使用新的 CA 和证书，宿主机客户端需要重新复制并信任新 CA；原来依赖 keystore 安全设置或自定义节点配置的功能也必须重新配置。
 
-要把原节点真正迁移到 Compose，至少需要在停止原节点后安全迁移并持久化其完整配置目录，或重新显式配置 TLS、keystore 和 enrollment，再让 Compose 同时挂载数据卷与配置卷。例如，准备好外部配置卷后，结构应类似：
+如果目标是连同原来的 CA、证书、keystore 和自定义设置一起迁移，则需要在停止原节点后安全迁移并持久化其完整配置目录，再让 Compose 同时挂载数据卷与配置卷。例如，准备好外部配置卷后，结构应类似：
 
 ```yaml
 services:
@@ -452,12 +457,13 @@ volumes:
 
 这里的 `esconfig01` 必须事先包含原节点完整、权限正确且受保护的配置内容，不能创建一个空卷直接覆盖镜像内的配置目录。配置目录含有私钥和 keystore，不应提交到 Git，也不能通过不受保护的普通文件复制流程处理。
 
-因此，本课程现状下有两条安全且清晰的路线：
+因此，本课程现状下有三条边界不同的路线：
 
 - **延续第 03 课**：保留原 `es01` 容器，让 Compose 只管理 Kibana 并通过外部网络访问它；数据、密码、证书和配置都继续由原容器使用。
+- **只复用第 03 课的数据**：停止原节点并确认版本兼容，让当前 Compose 挂载原 `esdata01`，由课程脚本生成新的安全配置；索引、集群元数据、用户和密码继续保留，但原 CA、keystore 和自定义配置不会恢复。
 - **学习完整 Compose 部署**：使用当前主示例创建新的项目级数据卷和全新的安全配置。
 
-“只复用 `esdata01`”应视为节点迁移练习，不是简单的 Compose 复用开关。正式迁移前还应创建 Elasticsearch 快照；复制数据目录本身不是受支持的备份方式。
+“只复用 `esdata01`”仍应视为节点迁移练习，不是简单的 Compose 复用开关。正式迁移前还应创建 Elasticsearch 快照；直接复用数据目录不能替代受支持的快照备份。
 
 本节后续采用主示例的**独立部署路线**：第 04 课由 Compose 同时创建新的 Elasticsearch 和 Kibana。选择延续路线时，需要针对第 03 课的 `es01` 另行提供 CA、Kibana 机器凭据和用户密码，不能直接套用主示例的项目级命名卷。
 
@@ -574,7 +580,11 @@ Kibana 后台使用启动脚本创建的 `elastic/kibana` 服务账户令牌连�
 Elasticsearch 健康并启动 Kibana 后，Kibana 仍需要建立连接、迁移保存对象并初始化插件。浏览器如果在这个短暂窗口内访问 Kibana，可能看到：
 
 ```json
-{"statusCode":503,"error":"Service Unavailable","message":"License information could not be obtained from Elasticsearch. Please check the logs for further details."}
+{
+  "statusCode": 503,
+  "error": "Service Unavailable",
+  "message": "License information could not be obtained from Elasticsearch. Please check the logs for further details."
+}
 ```
 
 这个响应通常表示许可证模块暂时还没有从 Elasticsearch 的 `/_license` 接口取得信息，不等于许可证无效，也不表示自动初始化失败。
@@ -629,13 +639,13 @@ GET kbn:/api/status
 
 ## 4. 区分 Kibana 凭据与用户登录凭据
 
-本节自动化流程使用 Kibana 服务账户令牌和用户密码；浏览器注册令牌只用于另一种首次配对方案，这三者属于不同主体：
+本节自动化流程直接配置 CA 和 Kibana 服务账户令牌，用户则使用自己的密码登录；Kibana 注册令牌用于 enrollment 首次配对，既可以手动填写，也可以自动传入。这三者属于不同主体：
 
-| 凭据 | 代表谁 | 主要用途 | 生命周期 | 能否登录 Kibana |
-| --- | --- | --- | --- | --- |
-| Kibana 注册令牌 | 一次初始化操作 | 手动注册方案中完成首次安全配对；本节自动化流程不使用 | 短期有效，过期后重新生成 | 不能 |
-| Kibana 服务账户令牌 | Kibana 机器身份 `elastic/kibana` | 让 Kibana 后台维护系统索引、迁移和任务等内部数据 | 不会自动过期，需要主动撤销 | 不能 |
-| `elastic` 用户密码 | 人类用户 `elastic` | 登录 Kibana，或直接调用 Elasticsearch HTTP API | 重置前持续有效 | 能 |
+| 凭据                | 代表谁                           | 主要用途                                                                                           | 生命周期                   | 能否登录 Kibana |
+| ------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------- | -------------------------- | --------------- |
+| Kibana 注册令牌     | 一次初始化操作                   | 完成 enrollment 首次安全配对，可手动填写或自动传入；本节选择绕过该流程，直接配置 CA 和服务账户令牌 | 短期有效，过期后重新生成   | 不能            |
+| Kibana 服务账户令牌 | Kibana 机器身份 `elastic/kibana` | 让 Kibana 后台维护系统索引、迁移和任务等内部数据                                                   | 不会自动过期，需要主动撤销 | 不能            |
+| `elastic` 用户密码  | 人类用户 `elastic`               | 登录 Kibana，或直接调用 Elasticsearch HTTP API                                                     | 重置前持续有效             | 能              |
 
 ### 4.1 Kibana 服务端自己的凭据
 

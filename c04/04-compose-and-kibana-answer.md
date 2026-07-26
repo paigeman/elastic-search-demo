@@ -44,17 +44,17 @@ c04-kib01-1
 
 ## 4. 三种“复用”的区别
 
-| 场景 | 做法 | 资源由谁管理 |
-| --- | --- | --- |
-| 复用同一 Compose 项目的容器 | 使用 `compose stop`、`compose start` 或再次执行 `compose up` | 仍由原 Compose 项目管理 |
-| 访问已有容器 | 把 Compose 服务与已有容器接入同一个外部网络 | Compose 只管理自己创建的服务，不能接管已有容器 |
-| 复用已有数据卷 | 将卷声明为 `external: true` 并指定实际卷名 | Compose 创建新容器，但不创建或删除该外部卷 |
+| 场景                        | 做法                                                         | 资源由谁管理                                   |
+| --------------------------- | ------------------------------------------------------------ | ---------------------------------------------- |
+| 复用同一 Compose 项目的容器 | 使用 `compose stop`、`compose start` 或再次执行 `compose up` | 仍由原 Compose 项目管理                        |
+| 访问已有容器                | 把 Compose 服务与已有容器接入同一个外部网络                  | Compose 只管理自己创建的服务，不能接管已有容器 |
+| 复用已有数据卷              | 将卷声明为 `external: true` 并指定实际卷名                   | Compose 创建新容器，但不创建或删除该外部卷     |
 
 同名不代表接管。把 `container_name` 写成已经存在的容器名只会产生名称冲突。
 
-外部网络复用的是连接能力，已有容器仍按原来的方式启停。外部卷复用的是数据，不是容器；挂载 Elasticsearch 旧数据卷前必须停止旧节点、确认版本兼容并迁移完整安全配置。数据目录不能被两个节点同时写入，复制数据目录也不能替代受支持的快照备份。
+外部网络复用的是连接能力，已有容器仍按原来的方式启停。外部卷复用的是数据，不是容器；挂载 Elasticsearch 旧数据卷前必须停止旧节点并确认版本兼容。数据目录不能被两个节点同时写入，直接复用或复制数据目录也不能替代受支持的快照备份。
 
-当前 Compose 使用 `esconfig`、`esdata01`、`kibanabootstrap` 和 `kibanadata` 四个命名卷。`compose down` 不带 `-v` 时只删除容器和默认网络，这四个卷及其中的 TLS 配置、索引数据、服务令牌和 Kibana 状态都会保留；`compose down -v` 才会连同项目命名卷一起删除。旧版部署如果没有 `esconfig`，即使 `esdata01` 仍在，也不能在迁移 Elasticsearch keystore 等完整配置之前直接重建 Elasticsearch 容器。
+当前 Compose 使用 `esconfig`、`esdata01`、`kibanabootstrap` 和 `kibanadata` 四个命名卷。`compose down` 不带 `-v` 时只删除容器和默认网络，这四个卷及其中的 TLS 配置、索引数据、服务令牌和 Kibana 状态都会保留；`compose down -v` 才会连同项目命名卷一起删除。如果只保留了 `esdata01`，当前启动脚本仍可在新的配置卷中生成 CA、证书和 Kibana 服务账户令牌，再由新容器继续使用原数据；但原节点的 CA、Elasticsearch keystore 和自定义配置不会随数据恢复，相关客户端需要改为信任新 CA，并重新配置所需的安全设置。
 
 ## 5. Compose 服务运行状态
 
@@ -166,11 +166,11 @@ services:
 
 ## 9. 三类凭据以及后台请求与用户请求的身份
 
-| 凭据 | 身份和用途 | 生命周期 | 能否登录 Kibana |
-| --- | --- | --- | --- |
-| Kibana 注册令牌 | 手动注册方案中的一次性配对凭据；本节自动化流程不使用 | 短期有效，过期后重新生成 | 不能 |
-| Kibana 服务账户令牌 | 机器身份 `elastic/kibana`，用于 Kibana 后台访问 Elasticsearch | 不会自动过期，需要主动撤销 | 不能 |
-| `elastic` 用户密码 | 人类用户 `elastic`，用于登录 Kibana 或直接调用 Elasticsearch | 重置前持续有效 | 能 |
+| 凭据                | 身份和用途                                                                                    | 生命周期                   | 能否登录 Kibana |
+| ------------------- | --------------------------------------------------------------------------------------------- | -------------------------- | --------------- |
+| Kibana 注册令牌     | enrollment 首次配对凭据，可手动填写或自动传入；本节选择绕过该流程，直接配置 CA 和服务账户令牌 | 短期有效，过期后重新生成   | 不能            |
+| Kibana 服务账户令牌 | 机器身份 `elastic/kibana`，用于 Kibana 后台访问 Elasticsearch                                 | 不会自动过期，需要主动撤销 | 不能            |
+| `elastic` 用户密码  | 人类用户 `elastic`，用于登录 Kibana 或直接调用 Elasticsearch                                  | 重置前持续有效             | 能              |
 
 Kibana 即使没有用户登录，也要迁移 `.kibana*` 系统索引并运行后台任务，所以后台通信使用专用机器身份。用户在 Dev Tools、Discover 或 Dashboard 发起的操作则必须按照该登录用户的角色授权。两条请求通道身份不同，Kibana 不会把自己的服务账户权限借给浏览器用户。
 
@@ -200,6 +200,10 @@ start-elasticsearch.sh 生成或复用证书和服务令牌，并复制 CA
   └─ es01 使用证书启动并通过 HTTPS 健康检查
        └─ kib01 将令牌写入 keystore 并以 full 模式连接 es01
 ```
+
+Elasticsearch 启动脚本仅在课程 CA 或节点证书缺失时生成新文件；证书和私钥都已存在时直接复用，因此普通重启不会更换 CA。脚本也只在 `kibanabootstrap` 卷中不存在 `service_token` 文件时创建 `elastic/kibana` 服务账户令牌，文件存在时直接复用，避免每次启动增加新令牌。如果共享令牌文件缺失但 Elasticsearch 配置中已有同名文件型令牌，脚本会先删除该旧记录再重新创建，确保固定令牌名称不会造成创建冲突。
+
+公开 CA 会在每次 Elasticsearch 启动时复制到 `kibanabootstrap` 卷；Kibana 以只读方式挂载该卷，并使用其中的 CA 验证 Elasticsearch 的 HTTP 证书。Kibana 启动脚本再通过 `--force` 把共享服务令牌写入 keystore 的固定键 `elasticsearch.serviceAccountToken`，所以重复启动会更新同一个键，不会不断增加配置项。
 
 验收时应确认：
 
