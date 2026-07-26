@@ -63,7 +63,7 @@ GET /application-client-products-read/_count
 
 预期返回的 `count` 是 `5`。`p1303` 被设置为不可用，后面的客户端搜索会通过固定过滤条件将它排除；`p1304` 则用于验证类目过滤。
 
-客户端不应使用 `elastic` 超级用户。继续在 Console 中创建一个有效期为一天、只能读取本章实验索引的 API 密钥：
+客户端不应使用 `elastic` 超级用户。为此，继续在 Console 中创建一个有效期为一天、只能读取本章实验索引的 API 密钥：
 
 ```http
 POST /_security/api_key
@@ -185,30 +185,30 @@ npm install @elastic/elasticsearch
 ```
 
 ```javascript
-import fs from 'node:fs'
-import { Client } from '@elastic/elasticsearch'
+import fs from "node:fs";
+import { Client } from "@elastic/elasticsearch";
 
 const client = new Client({
   node: process.env.ES_URL,
   auth: { apiKey: process.env.ES_API_KEY },
   tls: { ca: fs.readFileSync(process.env.ES_CA) },
   requestTimeout: 2000,
-  maxRetries: 3
-})
+  maxRetries: 3,
+});
 
 const result = await client.search({
-  index: 'application-client-products-read',
+  index: "application-client-products-read",
   size: 20,
-  _source: ['product_id', 'name', 'price'],
+  _source: ["product_id", "name", "price"],
   query: {
     bool: {
-      must: [{ match: { name: '无线键盘' } }],
-      filter: [{ term: { available: true } }]
-    }
-  }
-})
+      must: [{ match: { name: "无线键盘" } }],
+      filter: [{ term: { available: true } }],
+    },
+  },
+});
 
-console.log(result.hits.hits)
+console.log(result.hits.hits);
 ```
 
 ## 4. 接口边界设计
