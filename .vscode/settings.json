@@ -1,5 +1,8 @@
 {
   "python.defaultInterpreterPath": "${workspaceFolder}/c13/python/.venv/bin/python",
   "python.terminal.activateEnvironment": true,
-  "pylint.interpreter": ["${workspaceFolder}/c13/python/.venv/bin/python"]
+  "pylint.interpreter": ["${workspaceFolder}/c13/python/.venv/bin/python"],
+  "maven.executable.preferMavenWrapper": true,
+  "maven.executable.path": "",
+  "java.configuration.updateBuildConfiguration": "interactive"
 }

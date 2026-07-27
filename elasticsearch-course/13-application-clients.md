@@ -231,10 +231,20 @@ console.log(result.hits.hits);
 ## 练习与验收
 
 - 使用一种官方客户端，以 API 密钥和证书颁发机构证书连接。
-- 实现商品搜索函数：关键词只允许搜索 `name` 和 `description`，只允许使用 `category`
-  做可选的精确过滤，并由应用固定加入 `available: true` 过滤条件；响应的 `_source`
-  只允许返回 `product_id`、`name`、`price` 和 `stock`。`size` 默认为 20，最小为
-  1、最大为 100，超出范围时限制到对应边界；不接受调用方传入任意索引名或查询 DSL。
+- 实现商品搜索函数。调用方只允许传入三个业务参数：必填的非空 `keyword`、可选的非空
+  `category` 和可选的整数 `size`；`size` 默认为 20，最小为 1、最大为 100，超出范围时
+  限制到对应边界。
+- 应用必须固定使用 `application-client-products-read` 索引；`keyword` 只搜索 `name`
+  和 `description`；`category` 只用于精确过滤；应用还必须固定加入 `available: true`
+  过滤条件。响应的 `_source` 恰好只返回 `product_id`、`name`、`price` 和 `stock`。
+  不接受调用方传入任意索引名、字段名、`available` 条件、`_source` 列表或查询 DSL。
+- 使用本节五条实验数据验收：以 `keyword=无线键盘`、`category=keyboard`、`size=20`
+  搜索时，应返回 `p1301`、`p1302` 和 `p1305`，不应返回不可用的 `p1303` 或类目为
+  `accessory` 的 `p1304`。省略 `category` 并以 `keyword=键盘` 搜索时，可以返回描述中
+  包含“键盘”的 `p1304`，但仍不能返回 `p1303`。每个命中的 `_source` 必须恰好包含上述
+  四个白名单字段。
+- 用查询构造单元测试验证 `size=0` 被限制为 1、`size=101` 被限制为 100；不要只依赖
+  五条实验数据的实际命中数量判断 `size` 是否正确。
 - 测试 429 重试上限：安全的读取请求收到 429 后最多重试 3 次，即包含初始请求在内
   最多尝试 4 次；最后一次仍返回 429 时必须停止重试并抛出错误，不能无限重试。
 

@@ -4,6 +4,9 @@
 
 # Editor and IDE files
 .idea/
+*.iml
+*.ipr
+*.iws
 .vscode/*
 !.vscode/settings.json
 *.swp
@@ -24,6 +27,9 @@ node_modules/
 
 # Java
 target/
+out/
+build/
+bin/
 
 # Local environment configuration
 .env

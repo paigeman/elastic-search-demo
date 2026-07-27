@@ -43,7 +43,56 @@ PUT /products
 }
 ```
 
-`scaled_float` 使用整数在底层保存小数，`scaling_factor` 指定写入时的缩放倍数。例如，`price` 的 `scaling_factor: 100` 会把 `19.99` 乘以 100 并取整为 `1999` 保存；写入、查询和读取时仍使用普通小数值，不需要手动乘除。倍数 100 通常用于保留两位小数，超出该精度的部分会在缩放时舍入，因此应根据业务精度和数值范围选择合适的倍数。
+`scaled_float` 使用整数在底层保存小数，`scaling_factor` 指定写入时的缩放倍数。例如，`price` 的 `scaling_factor: 100` 会把 `19.99` 乘以 100 并取整为 `1999` 保存；查询、排序、聚合以及通过 `fields` 读取映射值时仍按普通小数使用，不需要手动乘除。倍数 100 通常用于保留两位小数，超出该精度的部分会在缩放时舍入，因此应根据业务精度和数值范围选择合适的倍数。
+
+数值字段（包括 `scaled_float`）的 `coerce` 参数默认为 `true`。因此，已经映射为
+`scaled_float` 的 `price` 不仅接受 JSON 数值 `19.99`，也会把 JSON 字符串 `"19.99"`
+解析为数值后建立索引。这个行为属于已知字段的值解析，与 `dynamic` 无关；即使映射使用
+`dynamic: strict`，只要字段已经声明，仍会执行 `coerce`。
+
+默认 `_source` 保存写入时的原始 JSON，而不是映射解析后的内部值。因此，字符串
+`"19.99"` 可以按数值参与范围查询、排序和聚合，但从普通 `_source` 取回时仍可能带引号。
+下面的临时文档可以验证索引值和原始 `_source` 的区别：
+
+```http
+PUT /products/_doc/p-coerce-demo?refresh=wait_for
+{
+  "product_id": "p-coerce-demo",
+  "price": "19.99"
+}
+
+POST /products/_search
+{
+  "_source": ["price"],
+  "fields": ["price"],
+  "query": {
+    "term": {
+      "product_id": "p-coerce-demo"
+    }
+  }
+}
+
+DELETE /products/_doc/p-coerce-demo
+```
+
+预期命中的 `_source.price` 是字符串 `"19.99"`，`fields.price` 中则是可用于数值操作的
+`19.99`。这里讨论的是普通 `_source`；启用 synthetic `_source` 时，Elasticsearch 会从
+索引数据重建 `_source`，返回形式可能不同。
+
+`coerce` 只会转换能够合法解析的字符串。`"unknown"` 等内容不能转换为数值，在默认
+`ignore_malformed: false` 下会使整份文档写入失败。如果业务要求输入 JSON 必须严格使用
+数值而不能使用数值字符串，可以在字段映射中设置 `"coerce": false`：
+
+```json
+"price": {
+  "type": "scaled_float",
+  "scaling_factor": 100,
+  "coerce": false
+}
+```
+
+此时 `19.99` 可以写入，`"19.99"` 会因类型不符合要求而被拒绝。生产系统应根据数据契约
+决定是在映射层禁止隐式转换，还是在写入端或摄取管道中显式完成转换和错误处理。
 
 显式映射是指在写入数据之前，由开发者在 `mappings.properties` 中明确声明字段名称、字段类型和参数。上例显式规定了 `product_id` 是 `keyword`、`stock` 是 `integer` 等，并使用 `dynamic: strict` 拒绝所有未声明的字段。这种方式适合字段受控的核心索引。
 
