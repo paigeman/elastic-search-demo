@@ -19,6 +19,12 @@ __pycache__/
 .ruff_cache/
 .venv/
 
+# JavaScript
+node_modules/
+
+# Java
+target/
+
 # Local environment configuration
 .env
 
