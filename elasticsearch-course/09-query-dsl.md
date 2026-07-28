@@ -279,6 +279,34 @@ Elasticsearch 常见的词项级查询包括：
 | `regexp`    | 使用正则表达式匹配词项         | 表达能力强，但可能展开大量候选词项         |
 | `fuzzy`     | 按编辑距离匹配相近词项         | 容忍少量拼写错误，但要限制扩展数量         |
 
+### 2.1 `term` 的字段与条件组合
+
+一个 `term` 查询只针对一个字段匹配一个精确词项，不能在同一个 `term` 对象中并列多个字段。例如，下面的写法不是两个条件的简写，Elasticsearch 会因为 `term` 包含多个字段而拒绝该查询：
+
+```json
+{
+  "term": {
+    "available": true,
+    "category": "keyboard"
+  }
+}
+```
+
+需要同时匹配多个字段时，应把每个字段写成独立的 `term` 查询，再交给 `bool` 组合。放入同一个 `filter` 数组表示逻辑 AND，两个条件必须同时满足：
+
+```json
+{
+  "bool": {
+    "filter": [
+      { "term": { "available": true } },
+      { "term": { "category": "keyboard" } }
+    ]
+  }
+}
+```
+
+如果多个条件是逻辑 OR，则分别放入 `should`，并显式设置 `minimum_should_match: 1`。如果只是同一个字段可以匹配多个候选值，使用一个 `terms` 查询更直接；例如 `{"terms": {"brand": ["KeyWorks", "DockPro"]}}` 表示品牌等于其中任意一个值。
+
 其中 `term`、`terms`、`range`、`exists` 和 `ids` 常用于结构化条件；`prefix`、`wildcard`、`regexp` 和 `fuzzy` 也属于词项级查询，但可能需要枚举或扩展大量词项，使用限制见第 5 节。
 
 第 1.2 节已经使用 `term` 分别匹配一个精确的 `available` 值和 `category` 值。下面进一步组合 `terms`、`exists` 和 `range`：
