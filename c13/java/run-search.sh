@@ -136,7 +136,7 @@ fi
 
 if ! command -v java >/dev/null 2>&1; then
   echo "Java is required but was not found in PATH." >&2
-  echo "Activate the Java version managed by mise before running this script." >&2
+  echo "Install or activate Java 21 before running this script." >&2
   exit 1
 fi
 

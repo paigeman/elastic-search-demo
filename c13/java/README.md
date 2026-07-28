@@ -1,14 +1,15 @@
 # Java 客户端练习
 
-本目录是第 13 课“练习与验收”的 Java 项目骨架，使用 mise 管理的 Java 21 和项目自带的
+本目录提供第 13 课“练习与验收”的 Java 客户端实现，要求 Java 21，并使用项目自带的
 Maven Wrapper。无需也不应在系统中另行安装 Maven。
 
-## 项目状态
+## 项目内容
 
-需要由学习者实现的入口文件是
 [`SearchProducts.java`](./src/main/java/com/example/course13/SearchProducts.java)
-。项目配置、官方 Elasticsearch Java 客户端依赖、运行脚本和 Maven Wrapper 已准备好；
-本目录的其他文件不会代替学习者实现客户端连接、查询构造和重试逻辑。
+实现客户端连接、查询构造、429 重试和命令行入口；
+[`Product.java`](./src/main/java/com/example/course13/Product.java) 负责映射返回的商品文档。
+`src/test/` 包含不依赖外部服务的单元测试，以及需要显式启用的真实 Elasticsearch
+集成测试。
 
 ## 验收要求
 
@@ -17,7 +18,7 @@ Maven Wrapper。无需也不应在系统中另行安装 Maven。
 1. 从 `ES_URL`、`ES_CA` 和 `ES_API_KEY` 环境变量读取连接信息，使用 API 密钥和 CA
    证书创建官方 Java 客户端；不得关闭 TLS 验证，也不得在源码或日志中记录 API 密钥。
 2. 实现商品搜索函数：
-   - 函数只接收 `keyword`、可选的 `category` 和 `pageSize` 三个业务参数。
+   - 函数只接收 `keyword`、可选的 `category` 和 `size` 三个业务参数。
    - 固定使用 `application-client-products-read` 索引，不接受调用方指定索引或任意 DSL。
    - 关键词只搜索 `name` 和 `description`。
    - 只允许使用 `category` 做可选的精确过滤，并固定加入 `available: true`。
@@ -29,10 +30,9 @@ Maven Wrapper。无需也不应在系统中另行安装 Maven。
 
 ## 使用 Maven Wrapper
 
-确认 Java 来自 mise：
+先确认当前 Java 版本为 21：
 
 ```bash
-mise current java
 java -version
 ```
 
@@ -49,9 +49,34 @@ java -version
 `spotless:apply` 会格式化 Java 文件；`verify` 会依次编译、测试，并执行格式检查和
 Checkstyle。请始终使用 `./mvnw`，不要使用或安装全局 `mvn`。
 
+## 运行测试
+
+运行不依赖 Elasticsearch 的单元测试：
+
+```bash
+./mvnw test
+```
+
+单元测试验证固定索引与字段白名单、可选类目过滤、`size` 边界，以及 429 的重试上限。
+真实集成测试默认跳过，因此普通测试不需要 CA 证书、API 密钥或正在运行的
+Elasticsearch。
+
+完成课程正文中的索引初始化和 API 密钥创建后，可以显式运行真实集成测试：
+
+```bash
+RUN_ES_INTEGRATION_TESTS=true \
+ES_URL='https://localhost:9200' \
+ES_CA='../../c04/http_ca.crt' \
+ES_API_KEY='<创建 API 密钥时返回的 encoded 值>' \
+./mvnw -Dtest=SearchProductsIntegrationTest test
+```
+
+该测试通过生产代码执行带类目和不带类目的两次查询，并验证课程数据的命中文档及
+`Product` 字段映射。API 密钥只通过当前进程环境传入，不要写入项目文件或日志。
+
 ## 运行搜索
 
-完成 `SearchProducts.java` 后，先按照课程正文初始化索引并创建 API 密钥，再运行：
+按照课程正文初始化索引并创建 API 密钥后，运行：
 
 ```bash
 ./run-search.sh \

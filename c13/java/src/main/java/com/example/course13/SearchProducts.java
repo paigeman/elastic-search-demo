@@ -6,17 +6,19 @@ import co.elastic.clients.elasticsearch._types.query_dsl.BoolQuery;
 import co.elastic.clients.elasticsearch.core.SearchRequest;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.transport.TransportUtils;
-import co.elastic.clients.util.ObjectBuilder;
 import java.io.File;
 import java.io.IOException;
 import java.util.Objects;
-import java.util.function.Function;
 import javax.net.ssl.SSLContext;
 
 public class SearchProducts {
 
+  private static final String INDEX_NAME = "application-client-products-read";
+  private static final int DEFAULT_SIZE = 20;
+  private static final int MAX_RETRIES = 3;
+
   public static SearchResponse<Product> searchProducts(String keyword) throws IOException {
-    return searchProducts(keyword, null, 20);
+    return searchProducts(keyword, null, DEFAULT_SIZE);
   }
 
   public static SearchResponse<Product> searchProducts(String keyword, int size)
@@ -26,19 +28,26 @@ public class SearchProducts {
 
   public static SearchResponse<Product> searchProducts(String keyword, String category)
       throws IOException {
-    return searchProducts(keyword, category, 20);
+    return searchProducts(keyword, category, DEFAULT_SIZE);
   }
 
   public static SearchResponse<Product> searchProducts(String keyword, String category, int size)
       throws IOException {
+    SearchRequest request = buildSearchRequest(keyword, category, size);
+    try (ElasticsearchClient esClient = getElasticsearchClient()) {
+      return executeWithRetries(request, r -> esClient.search(r, Product.class));
+    }
+  }
+
+  static SearchRequest buildSearchRequest(String keyword, String category, int size) {
     Objects.requireNonNull(keyword);
     if (keyword.isBlank()) {
       throw new IllegalArgumentException("keyword cannot be blank");
     }
-    ElasticsearchClient esClient = getElasticsearchClient();
-    Function<SearchRequest.Builder, ObjectBuilder<SearchRequest>> bu =
+
+    return SearchRequest.of(
         s ->
-            s.index("application-client-products-v1")
+            s.index(INDEX_NAME)
                 .query(
                     q ->
                         q.bool(
@@ -53,28 +62,27 @@ public class SearchProducts {
                                 builder.filter(
                                     f -> f.term(t -> t.field("category").value(category)));
                               }
-                              builder.filter(f -> f.term(t -> t.field("available").value(true)));
-                              return builder;
+                              return builder.filter(
+                                  f -> f.term(t -> t.field("available").value(true)));
                             }))
                 .size(Math.clamp(size, 1, 100))
-                .source(so -> so.filter(f -> f.includes("product_id", "name", "price", "stock")));
-    final int maxRetries = 3;
-    SearchResponse<Product> response = null;
-    for (int retry = 0; retry < maxRetries; retry++) {
+                .source(
+                    source ->
+                        source.filter(
+                            filter -> filter.includes("product_id", "name", "price", "stock"))));
+  }
+
+  static SearchResponse<Product> executeWithRetries(SearchRequest request, SearchExecutor executor)
+      throws IOException {
+    for (int retry = 0; ; retry++) {
       try {
-        response = esClient.search(bu, Product.class);
+        return executor.search(request);
       } catch (ElasticsearchException e) {
-        if (e.status() == 429) {
-          System.out.println("429 Too Many Requests！Retries: " + retry);
-          ++retry;
-          continue;
-        } else {
+        if (e.status() != 429 || retry == MAX_RETRIES) {
           throw e;
         }
       }
-      break;
     }
-    return response;
   }
 
   public static ElasticsearchClient getElasticsearchClient() {
@@ -91,5 +99,16 @@ public class SearchProducts {
     return ElasticsearchClient.of(b -> b.host(esUrl).apiKey(esApiKey).sslContext(sslContext));
   }
 
-  public static void main(String[] args) throws IOException {}
+  public static void main(String[] args) throws IOException {
+    String keyword = System.getenv("ES_SEARCH_KEYWORD");
+    String category = System.getenv("ES_SEARCH_CATEGORY");
+    int size = Integer.parseInt(System.getenv("ES_SEARCH_SIZE"));
+    System.out.println(searchProducts(keyword, category, size));
+  }
+
+  @FunctionalInterface
+  interface SearchExecutor {
+
+    SearchResponse<Product> search(SearchRequest request) throws IOException;
+  }
 }

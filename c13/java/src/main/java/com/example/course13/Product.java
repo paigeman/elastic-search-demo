@@ -1,7 +1,10 @@
 package com.example.course13;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 public class Product {
 
+  @JsonProperty("product_id")
   private String productId;
 
   private String name;
@@ -15,6 +18,8 @@ public class Product {
   private int stock;
 
   private boolean available;
+
+  public Product() {}
 
   public Product(
       String productId,
