@@ -1,0 +1,24 @@
+services:
+  snapshot-repo-init:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    user: "0"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        chown 1000:0 /mnt/es-backups
+        chmod 0770 /mnt/es-backups
+    volumes:
+      - esbackups:/mnt/es-backups
+    restart: "no"
+
+  es01:
+    environment:
+      ES_SETTING_PATH_REPO: /mnt/es-backups
+    volumes:
+      - esbackups:/mnt/es-backups
+    depends_on:
+      snapshot-repo-init:
+        condition: service_completed_successfully
+
+volumes:
+  esbackups:

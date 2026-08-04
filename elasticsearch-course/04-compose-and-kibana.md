@@ -762,6 +762,8 @@ podman compose down
 
 不带 `-v` 的 `compose down` 只删除容器和默认网络，`esconfig`、`esdata01`、`kibanabootstrap` 和 `kibanadata` 四个命名卷都会保留，之后执行 `compose up -d` 可以重新挂载它们。不要随意添加 `-v`；`compose down -v` 会删除这四个卷，其中的索引、TLS 证书、keystore、Kibana 服务令牌和保存对象都会丢失。命名卷能跨容器重建保留状态，但它不是备份或 Secret 管理系统。
 
+建议在本节或后续每次实验结束后执行不带 `-v` 的 `compose down`，而不是让 Elasticsearch 和 Kibana 容器一直占用资源。这对内存有限的 Podman Machine 尤其重要：容器停止并删除后，可以执行 `podman machine stop` 释放虚拟机资源；下次实验前再执行 `podman machine start`。不要使用 `podman machine rm` 代替 `stop`，删除 Machine 会连同其内部的容器存储和命名卷一起删除。
+
 这个示例只有一个节点、一个本地数据卷，没有跨主机容灾、可信企业证书、备份、集中日志、监控告警或容量规划。生产环境至少要重新设计：
 
 - 多节点与故障域、节点角色和分片策略。
