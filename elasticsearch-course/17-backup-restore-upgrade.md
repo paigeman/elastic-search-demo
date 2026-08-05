@@ -95,35 +95,34 @@ path.repo:
 
 第 04 课结束后，基础容器应已通过不带 `-v` 的 `compose down` 停止并删除。这不会删除该 Compose 项目的命名卷：索引和安全索引仍保存在 `esdata01`，Elasticsearch 证书、keystore 和配置仍保存在 `esconfig`，Kibana 服务令牌和保存对象也仍保存在各自的卷中。本节重建容器后会复用这些数据和认证状态，无需重新初始化集群。
 
-进入第 04 课实验目录，让 Compose 继续读取其中的 `.env`：
+以下命令均在仓库根目录执行，无需进入 `c04`。仓库提供的 `c17/compose.sh` 包装脚本会自行切换到 `c04`，读取其中的 `.env`，同时加载基础文件与快照覆盖文件，并将收到的其余参数原样传给 Compose。默认优先使用 Podman；系统中没有 Podman 时使用 Docker。可以通过 `C17_COMPOSE_ENGINE` 明确指定容器引擎：
 
 ```bash
-cd c04
+# 按需执行一次；Podman 用户可以省略
+export C17_COMPOSE_ENGINE=docker
 ```
 
-如果使用 Podman 且 Machine 已经停止，先执行 `podman machine start`。如果第 04 课的基础容器仍在运行，再按使用的容器引擎执行 `docker compose down` 或 `podman compose down`，不要添加 `-v`。
+如果使用 Podman 且 Machine 已经停止，先执行 `podman machine start`。如果第 04 课的基础容器仍在运行，可以使用创建它们时的同一容器引擎执行 `./c17/compose.sh down`，不要添加 `-v`。该脚本仍以 `c04` 作为 Compose 项目，并保留 `es01`、`kib01` 的服务定义，因此可以找到并停止第 04 课按默认项目名创建的容器；此时尚不存在的 `snapshot-repo-init` 不会造成影响。如果第 04 课启动时通过 `-p` 自定义了项目名，这里也必须传入相同名称，例如 `./c17/compose.sh -p elastic-course down`。
 
-使用 Docker Compose 时执行：
+通过脚本检查合并配置并启动实验环境：
 
 ```bash
-docker compose \
-  -f compose.yml \
-  -f ../c17/compose.snapshot.yml \
-  config
-
-docker compose \
-  -f compose.yml \
-  -f ../c17/compose.snapshot.yml \
-  up -d
+./c17/compose.sh config
+./c17/compose.sh up -d
 ```
 
-使用 Podman Compose 时将上述命令中的 `docker compose` 替换为 `podman compose`。实验期间执行 `up`、`down`、`ps` 或 `logs` 时都应保留这两个 `-f` 参数，以免 Compose 在后续重建 `es01` 时丢失仓库挂载。可通过以下命令检查状态：
+其中 `config` 只是可选的启动前检查：它读取 `.env`，合并两份 Compose 文件，校验配置并将最终结果输出到终端；它不会保存合并结果，也不会创建、启动或修改容器。可以跳过这一步直接执行 `./c17/compose.sh up -d`，因为 `up` 也会重新读取并校验相同配置；如果配置有误，`up` 会报错并停止。这里单独列出 `config`，是为了便于在实验前确认快照仓库的环境变量、卷挂载和初始化服务已经正确合并。
+
+脚本实际执行的命令等效于：
 
 ```bash
-docker compose \
-  -f compose.yml \
-  -f ../c17/compose.snapshot.yml \
-  ps -a
+(cd c04 && podman compose -f compose.yml -f ../c17/compose.snapshot.yml COMMAND [ARGS...])
+```
+
+实验期间统一通过该脚本执行 `up`、`down`、`ps` 或 `logs`，以免后续重建 `es01` 时丢失仓库挂载。可通过以下命令检查状态：
+
+```bash
+./c17/compose.sh ps -a
 ```
 
 `snapshot-repo-init` 显示已成功退出是预期结果，`es01` 应为健康运行状态。不要使用 `down -v`；它会删除 Compose 项目的数据卷、配置卷和本实验的快照卷。
@@ -218,17 +217,9 @@ GET /restored-snapshot-lab-products-v1/_search
 完成验证后，应停止并删除实验容器以释放资源，同时保留数据、认证信息和快照：
 
 ```bash
-# Docker Compose
-docker compose \
-  -f compose.yml \
-  -f ../c17/compose.snapshot.yml \
-  down
+./c17/compose.sh down
 
-# Podman Compose
-podman compose \
-  -f compose.yml \
-  -f ../c17/compose.snapshot.yml \
-  down
+# 仅使用 Podman Machine 时执行
 podman machine stop
 ```
 
