@@ -168,6 +168,8 @@ PUT /_snapshot/course-repo
 POST /_snapshot/course-repo/_verify
 ```
 
+这里的“注册”指通过 API 把仓库登记到集群状态中，而不是在磁盘上创建目录。静态配置 `path.repo` 只是节点侧的白名单，声明哪些路径允许被用作仓库位置，它本身不创建任何仓库；`PUT /_snapshot/course-repo` 才真正在集群中注册名为 `course-repo` 的仓库，指定类型（`fs`）与位置。因此仅有静态配置时集群中还没有任何可用的仓库，快照无处可写；反过来，注册的位置不在 `path.repo` 白名单内时，注册 API 也会被拒绝。两者缺一不可：静态配置限定“允许哪些路径”，API 注册决定“实际用哪个仓库”。注册后的 `_verify` 让每个节点在仓库中写入并读回测试文件，确认各节点都能一致访问该仓库，之后才可创建快照。
+
 创建快照：
 
 ```http
@@ -179,12 +181,23 @@ PUT /_snapshot/course-repo/snapshot-lab-001?wait_for_completion=true
 }
 ```
 
-查看：
+`include_global_state` 控制快照是否包含集群级状态：持久化集群设置、索引模板、ILM/SLM 策略、ingest pipeline 等。这里设为 `false`，表示本次快照只备份指定索引的数据，不携带任何集群配置；恢复时也就不会把快照中的集群配置覆盖到当前集群，适合只关心业务数据的场景。若希望连集群配置一起备份，才应设为 `true`。`metadata` 是可选的备注字段，用于记录快照的用途和归属。
+
+查看快照的元数据：
 
 ```http
 GET /_snapshot/course-repo/snapshot-lab-001
+```
+
+返回的 `state` 应为 `SUCCESS`，并包含快照覆盖的索引、开始与结束时间等信息。
+
+查看快照操作的进度状态：
+
+```http
 GET /_snapshot/course-repo/_status
 ```
+
+`_status` 只报告仍在进行中的快照任务；因为创建时使用了 `wait_for_completion=true`，快照已经完成，这里返回 `"snapshots": []` 是正常预期，不代表仓库为空。若想列出仓库中的全部快照，可查询 `GET /_snapshot/course-repo/_all`。
 
 如果重复实验，应为新快照使用新的唯一名称，例如 `snapshot-lab-002`，不要用文件系统命令修改仓库内容。
 
@@ -202,6 +215,8 @@ POST /_snapshot/course-repo/snapshot-lab-001/_restore
 }
 ```
 
+“恢复为新名称”正是由 `rename_pattern` 与 `rename_replacement` 两个参数实现的：`rename_pattern` 是匹配本次恢复索引名的正则，`(.+)` 把前缀 `snapshot-lab-products-` 之后的部分捕获为组；`rename_replacement` 是新名称模板，`$1` 引用捕获到的组。于是 `snapshot-lab-products-v1` 被恢复为 `restored-snapshot-lab-products-v1`，原索引保持不变。若某个索引名不匹配 `rename_pattern`，该索引会按原名恢复，此时才会覆盖集群中的同名索引。
+
 验证恢复后的文档数、映射和抽样数据：
 
 ```http
@@ -210,7 +225,11 @@ GET /restored-snapshot-lab-products-v1/_mapping
 GET /restored-snapshot-lab-products-v1/_search
 ```
 
+不带请求体的 `_search` 等价于 match_all，不设过滤条件；默认只返回前 10 条命中（`size` 默认值为 10），全部命中总数在响应的 `hits.total` 中查看。这里用它抽样确认恢复索引中能查到 `course-snapshot-sample`，实验索引只有一条文档，默认返回条数足以覆盖全部数据。
+
 预期原索引和恢复索引的文档数相同，并能在恢复索引中查到 `course-snapshot-sample`。备份成功不等于能够恢复；应定期在隔离环境演练，并记录恢复点目标（RPO）和恢复时间目标（RTO）。
+
+RPO（恢复点目标）指业务最多能容忍丢失多少数据，由备份频率决定，例如每小时快照一次则最坏丢失约 1 小时的数据，第 5 节的 SLM 策略频率就是为此设计的；RTO（恢复时间目标）指业务最多能容忍多久不可用，由恢复流程和演练熟练度决定，只能通过定期演练验证是否实际可达。
 
 重复恢复时，目标索引名不能已经存在。可以修改 `rename_replacement` 生成新的实验索引名，或者在确认不再需要后删除上一次生成的 `restored-snapshot-lab-products-v1`；不要为了解决同名冲突而覆盖真实业务索引。
 
@@ -228,6 +247,8 @@ podman machine stop
 ## 5. 快照生命周期管理
 
 使用快照生命周期管理（SLM）定时创建、保留和删除快照。策略应覆盖业务索引、必要的功能状态与合规保留要求，并监控失败情况。不同环境或集群使用同一仓库时，只能有一个写入者，其他集群应将仓库注册为只读，以避免仓库损坏。
+
+共用仓库的典型场景：生产集群写入快照，灾备集群注册同一仓库为只读，故障时直接恢复，避免复制整套快照数据；升级或迁移时，新集群从旧集群的仓库恢复，快照成为数据搬家的载体；测试、预发等不同环境把生产备份仓库注册为只读，按需恢复部分索引以复用接近生产的数据。仓库文件格式不为并发写入设计，多个互不协调的集群同时写入会互相覆盖元数据、损坏仓库，因此只允许一个写入者（通常是生产集群），其余集群一律只读注册。
 
 ## 6. 升级计划
 
